@@ -51,3 +51,33 @@ def add_reading(reading: schemas.ReadingCreate, db: Session = Depends(get_db)):
 def get_latest(db: Session = Depends(get_db)):
     readings = db.query(models.Reading).order_by(models.Reading.timestamp.desc()).limit(10).all()
     return readings
+
+@app.get("/api/alerts")
+def get_alerts(limit: int = 20, db: Session = Depends(get_db)):
+    records = (
+        db.query(models.DailyGeneration)
+        .order_by(models.DailyGeneration.date.desc())
+        .limit(300)
+        .all()
+    )
+
+    alerts = []
+    for r in records:
+        deviation_percent, penalty, status = calculate_penalty(r.dsm_target, r.dsm_achieved)
+        if status in ("Warning", "Critical"):
+            alerts.append({
+                "date": r.date,
+                "plant_name": r.plant_name,
+                "deviation_percent": deviation_percent,
+                "penalty_amount": penalty,
+                "status": status,
+                "message": f"{r.plant_name} deviated {deviation_percent}% from schedule ({r.dsm_target} MW target, {r.dsm_achieved} MW achieved).",
+            })
+        if len(alerts) >= limit:
+            break
+
+    return alerts
+
+@app.get("/api/users", response_model=list[schemas.UserResponse])
+def get_users(db: Session = Depends(get_db)):
+    return db.query(models.User).all()

@@ -61,6 +61,28 @@ export default function Layout({ children }) {
         </div>
       </div>
 
+      <div style={{ padding: "12px 20px" }}>
+          <button
+            onClick={() => {
+              localStorage.removeItem("token");
+              localStorage.removeItem("user");
+              window.location.href = "/login";
+            }}
+            style={{
+              width: "100%",
+              background: "rgba(255,255,255,0.1)",
+              color: "white",
+              border: "none",
+              padding: "10px",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            Logout
+          </button>
+        </div>
+
       {/* Main content */}
       <div style={{ flex: 1, background: "#f5f6fa" }}>
         <div style={{ background: "white", padding: "16px 32px", borderBottom: "1px solid #e5e7eb" }}>

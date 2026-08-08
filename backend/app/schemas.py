@@ -68,3 +68,27 @@ class DailyGenerationResponse(BaseModel):
     deviation_percent: float
     penalty_amount: float
     status: str
+
+class UserCreate(BaseModel):
+    employee_id: str
+    name: str
+    password: str
+    role: str = "Viewer"
+
+class UserLogin(BaseModel):
+    employee_id: str
+    password: str
+
+class UserResponse(BaseModel):
+    id: int
+    employee_id: str
+    name: str
+    role: str
+
+    class Config:
+        from_attributes = True
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse

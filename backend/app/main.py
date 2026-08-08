@@ -1,9 +1,10 @@
-from fastapi import FastAPI, Depends
+﻿from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from app.database import engine, Base, get_db
-from app import models, schemas
+from app import models, schemas, auth
 from datetime import datetime
+from collections import defaultdict
 
 app = FastAPI(title="MAHAGENCO DSM Dashboard API")
 
@@ -23,6 +24,9 @@ def root():
 def startup():
     Base.metadata.create_all(bind=engine)
 
+
+# ---------- PLANTS ----------
+
 @app.post("/api/plants", response_model=schemas.PlantResponse)
 def create_plant(plant: schemas.PlantCreate, db: Session = Depends(get_db)):
     new_plant = models.Plant(name=plant.name, location=plant.location)
@@ -31,9 +35,13 @@ def create_plant(plant: schemas.PlantCreate, db: Session = Depends(get_db)):
     db.refresh(new_plant)
     return new_plant
 
+
 @app.get("/api/plants", response_model=list[schemas.PlantResponse])
 def get_plants(db: Session = Depends(get_db)):
     return db.query(models.Plant).all()
+
+
+# ---------- READINGS ----------
 
 @app.post("/api/data", response_model=schemas.ReadingResponse)
 def add_reading(reading: schemas.ReadingCreate, db: Session = Depends(get_db)):
@@ -48,10 +56,14 @@ def add_reading(reading: schemas.ReadingCreate, db: Session = Depends(get_db)):
     db.refresh(new_reading)
     return new_reading
 
+
 @app.get("/api/latest", response_model=list[schemas.ReadingResponse])
 def get_latest(db: Session = Depends(get_db)):
     readings = db.query(models.Reading).order_by(models.Reading.timestamp.desc()).limit(10).all()
     return readings
+
+
+# ---------- SCHEDULE ----------
 
 @app.post("/api/schedule", response_model=schemas.ScheduleResponse)
 def set_schedule(schedule: schemas.ScheduleCreate, db: Session = Depends(get_db)):
@@ -75,6 +87,8 @@ def get_latest_schedule(plant_id: int, db: Session = Depends(get_db)):
     )
     return schedule
 
+
+# ---------- DSM PENALTY LOGIC ----------
 
 def calculate_penalty(scheduled: float, actual: float):
     deviation_mw = actual - scheduled
@@ -127,7 +141,8 @@ def get_deviation(plant_id: int, db: Session = Depends(get_db)):
         "status": status,
     }
 
-from datetime import datetime as dt
+
+# ---------- REPORTS ----------
 
 @app.get("/api/reports")
 def get_reports(
@@ -144,10 +159,10 @@ def get_reports(
         query = query.filter(models.DailyGeneration.plant_code == plant_code)
 
     if start_date:
-        query = query.filter(models.DailyGeneration.date >= dt.strptime(start_date, "%Y-%m-%d"))
+        query = query.filter(models.DailyGeneration.date >= datetime.strptime(start_date, "%Y-%m-%d"))
 
     if end_date:
-        query = query.filter(models.DailyGeneration.date <= dt.strptime(end_date, "%Y-%m-%d"))
+        query = query.filter(models.DailyGeneration.date <= datetime.strptime(end_date, "%Y-%m-%d"))
 
     total = query.count()
 
@@ -183,7 +198,8 @@ def get_reports(
         "data": result,
     }
 
-from collections import defaultdict
+
+# ---------- ANALYTICS ----------
 
 @app.get("/api/analytics")
 def get_analytics(
@@ -198,10 +214,10 @@ def get_analytics(
         query = query.filter(models.DailyGeneration.plant_code == plant_code)
 
     if start_date:
-        query = query.filter(models.DailyGeneration.date >= dt.strptime(start_date, "%Y-%m-%d"))
+        query = query.filter(models.DailyGeneration.date >= datetime.strptime(start_date, "%Y-%m-%d"))
 
     if end_date:
-        query = query.filter(models.DailyGeneration.date <= dt.strptime(end_date, "%Y-%m-%d"))
+        query = query.filter(models.DailyGeneration.date <= datetime.strptime(end_date, "%Y-%m-%d"))
 
     records = query.all()
 
@@ -244,3 +260,73 @@ def get_analytics(
         "plf_trend": plf_trend,
         "status_distribution": status_distribution,
     }
+
+
+# ---------- ALERTS ----------
+
+@app.get("/api/alerts")
+def get_alerts(limit: int = 20, db: Session = Depends(get_db)):
+    records = (
+        db.query(models.DailyGeneration)
+        .order_by(models.DailyGeneration.date.desc())
+        .limit(300)
+        .all()
+    )
+
+    alerts = []
+    for r in records:
+        deviation_percent, penalty, status = calculate_penalty(r.dsm_target, r.dsm_achieved)
+        if status in ("Warning", "Critical"):
+            alerts.append({
+                "date": r.date,
+                "plant_name": r.plant_name,
+                "deviation_percent": deviation_percent,
+                "penalty_amount": penalty,
+                "status": status,
+                "message": f"{r.plant_name} deviated {deviation_percent}% from schedule ({r.dsm_target} MW target, {r.dsm_achieved} MW achieved).",
+            })
+        if len(alerts) >= limit:
+            break
+
+    return alerts
+
+
+# ---------- AUTH ----------
+
+@app.post("/api/signup", response_model=schemas.UserResponse)
+def signup(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    existing = db.query(models.User).filter(models.User.employee_id == user.employee_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Employee ID already registered")
+
+    new_user = models.User(
+        employee_id=user.employee_id,
+        name=user.name,
+        hashed_password=auth.hash_password(user.password),
+        role=user.role,
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+
+@app.post("/api/login", response_model=schemas.TokenResponse)
+def login(credentials: schemas.UserLogin, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.employee_id == credentials.employee_id).first()
+
+    if not user or not auth.verify_password(credentials.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid employee ID or password")
+
+    token = auth.create_access_token({"sub": user.employee_id, "role": user.role})
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user,
+    }
+
+
+@app.get("/api/users", response_model=list[schemas.UserResponse])
+def get_users(db: Session = Depends(get_db)):
+    return db.query(models.User).all()
