@@ -5,6 +5,7 @@ import Plants from "./pages/Plants";
 import PlantDetail from "./pages/PlantDetail";
 import Reports from "./pages/Reports";
 import Analytics from "./pages/Analytics";
+import LiveMonitoring from "./pages/LiveMonitoring";
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path="/plants/:id" element={<PlantDetail />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/analytics" element={<Analytics />} />
+          <Route path="/live" element={<LiveMonitoring />} />
         </Routes>
       </Layout>
     </BrowserRouter>
