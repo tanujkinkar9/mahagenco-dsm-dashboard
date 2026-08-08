@@ -45,3 +45,16 @@ class Schedule(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     plant = relationship("Plant")
+
+class DailyGeneration(Base):
+    __tablename__ = "daily_generation"
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(DateTime, nullable=False)
+    plant_code = Column(String(20), nullable=False)
+    plant_name = Column(String(100), nullable=False)
+    generation_mwh = Column(Float, nullable=False)
+    aux_consumption_mwh = Column(Float, nullable=False)
+    plf_percent = Column(Float, nullable=False)
+    dsm_target = Column(Float, nullable=False)
+    dsm_achieved = Column(Float, nullable=False)

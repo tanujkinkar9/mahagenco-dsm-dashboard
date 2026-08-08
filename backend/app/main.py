@@ -126,3 +126,121 @@ def get_deviation(plant_id: int, db: Session = Depends(get_db)):
         "penalty_amount": penalty,
         "status": status,
     }
+
+from datetime import datetime as dt
+
+@app.get("/api/reports")
+def get_reports(
+    plant_code: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    page: int = 1,
+    page_size: int = 20,
+    db: Session = Depends(get_db),
+):
+    query = db.query(models.DailyGeneration)
+
+    if plant_code:
+        query = query.filter(models.DailyGeneration.plant_code == plant_code)
+
+    if start_date:
+        query = query.filter(models.DailyGeneration.date >= dt.strptime(start_date, "%Y-%m-%d"))
+
+    if end_date:
+        query = query.filter(models.DailyGeneration.date <= dt.strptime(end_date, "%Y-%m-%d"))
+
+    total = query.count()
+
+    records = (
+        query.order_by(models.DailyGeneration.date.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    result = []
+    for r in records:
+        deviation_percent, penalty, status = calculate_penalty(r.dsm_target, r.dsm_achieved)
+        result.append({
+            "date": r.date,
+            "plant_code": r.plant_code,
+            "plant_name": r.plant_name,
+            "generation_mwh": r.generation_mwh,
+            "aux_consumption_mwh": r.aux_consumption_mwh,
+            "plf_percent": r.plf_percent,
+            "dsm_target": r.dsm_target,
+            "dsm_achieved": r.dsm_achieved,
+            "deviation_percent": deviation_percent,
+            "penalty_amount": penalty,
+            "status": status,
+        })
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size,
+        "data": result,
+    }
+
+from collections import defaultdict
+
+@app.get("/api/analytics")
+def get_analytics(
+    plant_code: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(models.DailyGeneration)
+
+    if plant_code:
+        query = query.filter(models.DailyGeneration.plant_code == plant_code)
+
+    if start_date:
+        query = query.filter(models.DailyGeneration.date >= dt.strptime(start_date, "%Y-%m-%d"))
+
+    if end_date:
+        query = query.filter(models.DailyGeneration.date <= dt.strptime(end_date, "%Y-%m-%d"))
+
+    records = query.all()
+
+    penalty_by_plant = defaultdict(float)
+    status_count = {"Normal": 0, "Warning": 0, "Critical": 0}
+    plf_by_date = defaultdict(list)
+
+    for r in records:
+        deviation_percent, penalty, status = calculate_penalty(r.dsm_target, r.dsm_achieved)
+        penalty_by_plant[r.plant_name] += penalty
+        status_count[status] += 1
+        date_str = r.date.strftime("%Y-%m-%d")
+        plf_by_date[date_str].append(r.plf_percent)
+
+    penalty_chart = [
+        {"plant": name, "penalty": round(total, 0)}
+        for name, total in sorted(penalty_by_plant.items(), key=lambda x: -x[1])
+    ]
+
+    sorted_dates = sorted(plf_by_date.keys())[-30:]
+    plf_trend = [
+        {"date": d, "avg_plf": round(sum(plf_by_date[d]) / len(plf_by_date[d]), 2)}
+        for d in sorted_dates
+    ]
+
+    total_records = len(records)
+    status_distribution = [
+        {"status": k, "count": v, "percent": round((v / total_records) * 100, 1) if total_records else 0}
+        for k, v in status_count.items()
+    ]
+
+    total_penalty = sum(penalty_by_plant.values())
+    avg_plf = round(sum(r.plf_percent for r in records) / total_records, 2) if total_records else 0
+
+    return {
+        "total_penalty": round(total_penalty, 0),
+        "avg_plf": avg_plf,
+        "total_records": total_records,
+        "penalty_by_plant": penalty_chart,
+        "plf_trend": plf_trend,
+        "status_distribution": status_distribution,
+    }

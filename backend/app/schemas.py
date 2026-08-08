@@ -55,3 +55,16 @@ class DeviationResponse(BaseModel):
     deviation_percent: float
     penalty_amount: float
     status: str
+
+class DailyGenerationResponse(BaseModel):
+    date: datetime
+    plant_code: str
+    plant_name: str
+    generation_mwh: float
+    aux_consumption_mwh: float
+    plf_percent: float
+    dsm_target: float
+    dsm_achieved: float
+    deviation_percent: float
+    penalty_amount: float
+    status: str
