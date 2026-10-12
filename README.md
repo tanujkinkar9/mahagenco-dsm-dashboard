@@ -120,8 +120,4 @@ App available at: `http://localhost:5173`
 
 ## Status
 
-🚧 Work in progress — built as an academic project prototype.
-
-## Author
-
-Tanuj Kinkar
+Completed
